@@ -358,7 +358,7 @@ const PARTIDAS = [
    ESTADO GLOBAL
    ========================================================================= */
 let msalInstance, account, graphToken;
-let siteId, masterDriveItemId, docsLibraryId;
+let siteId, masterDriveId, masterDriveItemId, docsLibraryId;
 let dropdownOptions = {}; // rango -> [valores]
 let lastBudget = null;    // último presupuesto calculado (para PDF / guardado)
 
@@ -444,16 +444,28 @@ async function resolveSiteAndFiles(){
   );
   siteId = site.id;
 
-  // Excel maestro dentro de la biblioteca "Datos"
-  const masterPath = `/${CONFIG.masterLibrary}/${CONFIG.masterFileName}`;
+  // Cada biblioteca de documentos es un "drive" independiente del sitio,
+  // no una carpeta dentro del drive por defecto — hay que listarlos y
+  // encontrar el que corresponde por nombre.
+  const drives = await graphFetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drives`);
+
+  const masterDrive = drives.value.find(d => d.name === CONFIG.masterLibrary);
+  if(!masterDrive){
+    throw new Error(`No se encontró la biblioteca "${CONFIG.masterLibrary}". Bibliotecas disponibles: ${drives.value.map(d=>d.name).join(", ")}`);
+  }
+  masterDriveId = masterDrive.id;
+
+  // Excel maestro dentro de esa biblioteca
   const masterItem = await graphFetch(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:${encodeURI(masterPath)}`
+    `https://graph.microsoft.com/v1.0/drives/${masterDriveId}/root:/${encodeURI(CONFIG.masterFileName)}`
   );
   masterDriveItemId = masterItem.id;
 
   // Biblioteca de documentos (para guardar el presupuesto)
-  const drives = await graphFetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drives`);
-  const docsDrive = drives.value.find(d => d.name === CONFIG.docsLibrary) || drives.value[0];
+  const docsDrive = drives.value.find(d => d.name === CONFIG.docsLibrary);
+  if(!docsDrive){
+    throw new Error(`No se encontró la biblioteca "${CONFIG.docsLibrary}". Bibliotecas disponibles: ${drives.value.map(d=>d.name).join(", ")}`);
+  }
   docsLibraryId = docsDrive.id;
 }
 
@@ -461,7 +473,7 @@ async function resolveSiteAndFiles(){
 // copia en memoria del libro, sin tocar ni guardar el Excel maestro real.
 async function createWorkbookSession(){
   const res = await graphFetch(
-    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}/workbook/createSession`,
+    `https://graph.microsoft.com/v1.0/drives/${masterDriveId}/items/${masterDriveItemId}/workbook/createSession`,
     { method: "POST", body: JSON.stringify({ persistChanges: false }) }
   );
   return res.id;
@@ -470,20 +482,20 @@ async function createWorkbookSession(){
 async function closeWorkbookSession(sessionId){
   try{
     await graphFetch(
-      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}/workbook/closeSession`,
+      `https://graph.microsoft.com/v1.0/drives/${masterDriveId}/items/${masterDriveItemId}/workbook/closeSession`,
       { method: "POST", headers: { "workbook-session-id": sessionId } }
     );
   }catch(e){ /* no crítico */ }
 }
 
 async function readRange(sheet, range, sessionId){
-  const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}` +
+  const url = `https://graph.microsoft.com/v1.0/drives/${masterDriveId}/items/${masterDriveItemId}` +
     `/workbook/worksheets('${encodeURIComponent(sheet)}')/range(address='${range}')`;
   return graphFetch(url, { headers: sessionId ? { "workbook-session-id": sessionId } : {} });
 }
 
 async function writeRange(sheet, range, values, sessionId){
-  const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}` +
+  const url = `https://graph.microsoft.com/v1.0/drives/${masterDriveId}/items/${masterDriveItemId}` +
     `/workbook/worksheets('${encodeURIComponent(sheet)}')/range(address='${range}')`;
   return graphFetch(url, {
     method: "PATCH",
@@ -739,7 +751,7 @@ async function guardarEnSharePoint(){
     const path = `/${CONFIG.docsLibrary}/${email}/${CONFIG.userSubfolder}/${nombre}`;
 
     await fetch(
-      `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${docsLibraryId}/root:${encodeURI(path)}:/content`,
+      `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root:${encodeURI(path)}:/content`,
       {
         method: "PUT",
         headers: {
