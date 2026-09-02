@@ -6,7 +6,7 @@
 <title>Presupuestador SATE</title>
 
 <!-- MSAL.js para login con cuenta Microsoft 365 -->
-<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <!-- jsPDF + html2canvas para exportar el presupuesto a PDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -780,6 +780,13 @@ function showTab(tab){
    ARRANQUE
    ========================================================================= */
 window.addEventListener("DOMContentLoaded", async () => {
+  if(typeof msal === "undefined"){
+    document.getElementById("loginBox").innerHTML = `
+      <div class="error-box">No se ha podido cargar la librería de login (MSAL).<br>
+      Puede que el navegador o la red esté bloqueando el CDN. Prueba a desactivar
+      la "Tracking Prevention" de Edge para esta página, o revisa la consola (F12) para más detalle.</div>`;
+    return;
+  }
   initMsal();
   document.getElementById("loginBtn").onclick = login;
   document.getElementById("calcBtn").onclick = (e) => { e.preventDefault(); calcularPresupuesto(); };
