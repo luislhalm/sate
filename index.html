@@ -259,13 +259,32 @@
   <!-- APP PRINCIPAL (oculta hasta login) -->
   <div id="mainApp" style="display:none;">
 
-    <div class="tabs">
+    <!-- MENÚ PRINCIPAL -->
+    <div id="menuScreen" class="card">
+      <h2 style="color:var(--capa-purpura);margin-top:0;">¿Qué quieres hacer?</h2>
+      <div class="btn-row">
+        <button class="primary" id="menuNewBtn">+ Presupuesto nuevo</button>
+        <button class="secondary" id="menuOpenBtn">Abrir presupuesto guardado</button>
+      </div>
+    </div>
+
+    <!-- LISTADO DE PRESUPUESTOS GUARDADOS -->
+    <div id="openScreen" class="card" style="display:none;">
+      <div class="btn-row" style="margin-top:0;margin-bottom:16px;">
+        <button class="secondary" onclick="backToMenu()">← Volver al menú</button>
+      </div>
+      <h2 style="color:var(--capa-purpura);margin-top:0;">Tus presupuestos guardados</h2>
+      <div id="openList"></div>
+    </div>
+
+    <div class="tabs" id="workTabs" style="display:none;">
+      <button class="tab-btn" onclick="backToMenu()">☰ Menú</button>
       <button class="tab-btn active" id="tabFormBtn" onclick="showTab('form')">1. Datos de la obra</button>
       <button class="tab-btn" id="tabBudgetBtn" onclick="showTab('budget')" disabled>2. Presupuesto</button>
     </div>
 
     <!-- TAB 1: FORMULARIO -->
-    <div id="tabForm" class="card">
+    <div id="tabForm" class="card" style="display:none;">
       <div id="formStatus"></div>
       <form id="questionsForm"></form>
       <div class="btn-row">
@@ -749,31 +768,43 @@ async function guardarEnSharePoint(){
     const { blob, nombre } = await exportarPDF();
     const email = account.username; // el correo tal cual, como nombre de carpeta
 
-    // Nos aseguramos de que exista la carpeta {email}/SATE dentro de la biblioteca
-    // "Documentos" antes de subir el archivo (Graph no crea carpetas intermedias solo).
     await ensureFolderPath(`/${email}/${CONFIG.userSubfolder}`);
+    const baseName = nombre.replace(/\.pdf$/i, "");
 
-    const path = `/${email}/${CONFIG.userSubfolder}/${nombre}`;
-    const res = await fetch(
-      `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root:${encodeURI(path)}:/content`,
-      {
-        method: "PUT",
-        headers: {
-          "Authorization": `Bearer ${graphToken}`,
-          "Content-Type": "application/pdf"
-        },
-        body: blob
-      }
-    );
-    if(!res.ok){
-      const body = await res.text();
-      throw new Error(`Graph error ${res.status}: ${body}`);
-    }
+    // PDF final
+    const pdfPath = `/${email}/${CONFIG.userSubfolder}/${baseName}.pdf`;
+    await uploadFile(pdfPath, blob, "application/pdf");
+
+    // Datos (respuestas + presupuesto calculado) para poder reabrir y editar
+    const dataPayload = {
+      referencia: lastBudget.referencia,
+      fecha: lastBudget.fecha,
+      respuestas: readFormValues(),
+      budget: lastBudget
+    };
+    const jsonBlob = new Blob([JSON.stringify(dataPayload)], { type: "application/json" });
+    const jsonPath = `/${email}/${CONFIG.userSubfolder}/${baseName}.json`;
+    await uploadFile(jsonPath, jsonBlob, "application/json");
 
     status.innerHTML = "";
     showToast(`Presupuesto guardado en Documentos/${email}/${CONFIG.userSubfolder}/ ✔`);
   }catch(err){
     status.innerHTML = `<div class="error-box">No se ha podido guardar en SharePoint.<br>${err.message}</div>`;
+  }
+}
+
+async function uploadFile(path, blob, contentType){
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root:${encodeURI(path)}:/content`,
+    {
+      method: "PUT",
+      headers: { "Authorization": `Bearer ${graphToken}`, "Content-Type": contentType },
+      body: blob
+    }
+  );
+  if(!res.ok){
+    const body = await res.text();
+    throw new Error(`Graph error ${res.status}: ${body}`);
   }
 }
 
@@ -810,6 +841,94 @@ function showToast(msg){
 }
 
 /* =========================================================================
+   MENÚ PRINCIPAL / ABRIR PRESUPUESTOS GUARDADOS
+   ========================================================================= */
+function goToNewBudget(){
+  document.getElementById("menuScreen").style.display = "none";
+  document.getElementById("openScreen").style.display = "none";
+  document.getElementById("workTabs").style.display = "flex";
+  // Formulario en blanco
+  document.querySelectorAll("#questionsForm input, #questionsForm select").forEach(el => el.value = "");
+  document.getElementById("tabBudgetBtn").disabled = true;
+  document.getElementById("budgetContent").innerHTML = "";
+  lastBudget = null;
+  showTab("form");
+}
+
+function backToMenu(){
+  document.getElementById("workTabs").style.display = "none";
+  document.getElementById("openScreen").style.display = "none";
+  document.getElementById("tabForm").style.display = "none";
+  document.getElementById("tabBudget").style.display = "none";
+  document.getElementById("menuScreen").style.display = "block";
+}
+
+async function goToOpenBudget(){
+  document.getElementById("menuScreen").style.display = "none";
+  document.getElementById("openScreen").style.display = "block";
+  const list = document.getElementById("openList");
+  list.innerHTML = `<div class="spinner"></div><p>Cargando presupuestos guardados…</p>`;
+  try{
+    const email = account.username;
+    const folderPath = `/${email}/${CONFIG.userSubfolder}`;
+    const res = await graphFetch(
+      `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root:${encodeURI(folderPath)}:/children`
+    ).catch(() => ({ value: [] })); // si la carpeta aún no existe, no hay nada guardado
+
+    const jsonFiles = (res.value || []).filter(f => f.name.toLowerCase().endsWith(".json"))
+      .sort((a,b) => new Date(b.lastModifiedDateTime) - new Date(a.lastModifiedDateTime));
+
+    if(jsonFiles.length === 0){
+      list.innerHTML = `<p style="color:#888;">Todavía no tienes presupuestos guardados.</p>`;
+      return;
+    }
+
+    list.innerHTML = "";
+    jsonFiles.forEach(f => {
+      const item = document.createElement("div");
+      item.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:12px;border:1px solid var(--gris-borde);border-radius:8px;margin-bottom:8px;cursor:pointer;";
+      const fecha = new Date(f.lastModifiedDateTime).toLocaleString("es-ES");
+      item.innerHTML = `<div><strong>${f.name.replace(/\.json$/i,"")}</strong><div class="hint">Guardado: ${fecha}</div></div><div>Abrir →</div>`;
+      item.onclick = () => abrirPresupuestoGuardado(f.id);
+      list.appendChild(item);
+    });
+  }catch(err){
+    list.innerHTML = `<div class="error-box">No se han podido listar los presupuestos guardados.<br>${err.message}</div>`;
+  }
+}
+
+async function abrirPresupuestoGuardado(fileId){
+  const list = document.getElementById("openList");
+  list.innerHTML = `<div class="spinner"></div><p>Abriendo presupuesto…</p>`;
+  try{
+    const res = await fetch(
+      `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/items/${fileId}/content`,
+      { headers: { "Authorization": `Bearer ${graphToken}` } }
+    );
+    if(!res.ok) throw new Error(`Graph error ${res.status}`);
+    const data = await res.json();
+
+    document.getElementById("openScreen").style.display = "none";
+    document.getElementById("workTabs").style.display = "flex";
+
+    // Repoblar el formulario con las respuestas guardadas
+    Object.entries(data.respuestas || {}).forEach(([cell, val]) => {
+      const el = document.getElementById(cell);
+      if(el) el.value = val;
+    });
+
+    // Mostrar directamente el presupuesto guardado (puede recalcularse si se quiere)
+    lastBudget = data.budget;
+    lastBudget.fecha = new Date(lastBudget.fecha);
+    document.getElementById("tabBudgetBtn").disabled = false;
+    renderBudget(lastBudget);
+    showTab("budget");
+  }catch(err){
+    list.innerHTML = `<div class="error-box">No se ha podido abrir el presupuesto.<br>${err.message}</div>`;
+  }
+}
+
+/* =========================================================================
    NAVEGACIÓN DE PESTAÑAS
    ========================================================================= */
 function showTab(tab){
@@ -832,6 +951,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
   initMsal();
   document.getElementById("loginBtn").onclick = login;
+  document.getElementById("menuNewBtn").onclick = goToNewBudget;
+  document.getElementById("menuOpenBtn").onclick = goToOpenBudget;
   document.getElementById("calcBtn").onclick = (e) => { e.preventDefault(); calcularPresupuesto(); };
   document.getElementById("recalcBtn").onclick = calcularPresupuesto;
   document.getElementById("pdfBtn").onclick = exportarPDF;
