@@ -378,10 +378,8 @@ function initMsal(){
 
 async function login(){
   try{
-    const result = await msalInstance.loginPopup({ scopes: CONFIG.scopes });
-    account = result.account;
-    msalInstance.setActiveAccount(account);
-    await afterLogin();
+    await msalInstance.loginRedirect({ scopes: CONFIG.scopes });
+    // La página se recarga tras el login; el flujo continúa en handleRedirectPromise (abajo)
   }catch(err){
     showLoginError(err);
   }
@@ -393,8 +391,8 @@ async function getToken(){
     const res = await msalInstance.acquireTokenSilent(req);
     return res.accessToken;
   }catch(err){
-    const res = await msalInstance.acquireTokenPopup(req);
-    return res.accessToken;
+    await msalInstance.acquireTokenRedirect(req);
+    // La página se recarga; no hay valor que devolver en esta ejecución
   }
 }
 
@@ -416,7 +414,7 @@ async function afterLogin(){
 }
 
 function logout(){
-  msalInstance.logoutPopup();
+  msalInstance.logoutRedirect();
 }
 
 /* =========================================================================
@@ -794,13 +792,27 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("pdfBtn").onclick = exportarPDF;
   document.getElementById("saveBtn").onclick = guardarEnSharePoint;
 
-  // Si ya hay una cuenta activa en sessionStorage, evitamos pedir login de nuevo
-  await msalInstance.handleRedirectPromise().catch(() => {});
+  // Al volver de Microsoft tras loginRedirect, el resultado llega aquí
+  let redirectResult;
+  try{
+    redirectResult = await msalInstance.handleRedirectPromise();
+  }catch(err){
+    showLoginError(err);
+    return;
+  }
+
+  if(redirectResult && redirectResult.account){
+    account = redirectResult.account;
+    msalInstance.setActiveAccount(account);
+    await afterLogin();
+    return;
+  }
+
   const accounts = msalInstance.getAllAccounts();
   if(accounts.length > 0){
     account = accounts[0];
     msalInstance.setActiveAccount(account);
-    afterLogin();
+    await afterLogin();
   }
 });
 </script>
