@@ -386,6 +386,19 @@ const QUESTIONS = [
 // piden en el formulario.
 
 // Definición de las 4 partidas y qué filas de "Entrada Plantilla" caen en cada una
+// Agrupación de secciones para el FORMULARIO (incluye las filas 11/18/24,
+// que son a la vez el título de la sección y una pregunta, para saber dónde
+// insertar cada título).
+const FORM_SECTIONS = [
+  { titulo: "1. Sistema aislante y recubrimiento", rows: [4,5,6,7,8,9,10] },
+  { titulo: "2. Perfilería de arranque, cierre y esquinas", rows: [11,12,13,14,15,16,17] },
+  { titulo: "3. Perfilería Ventanas",              rows: [18,19,20,21,22] },
+  { titulo: "4. Perfilería Puertas",                rows: [24,25,26,27,28] }
+];
+
+// Agrupación de secciones para el PRESUPUESTO (lectura de artículos E:I).
+// Excluye 11/18/24: esas filas solo contienen el texto del título en la
+// columna E, no un artículo real — incluirlas generaría una línea falsa.
 const PARTIDAS = [
   { titulo: "1. Sistema aislante y recubrimiento", rows: [4,5,6,7,8,9,10] },
   { titulo: "2. Perfilería de arranque, cierre y esquinas", rows: [12,13,14,15,16,17] },
@@ -582,7 +595,7 @@ function renderForm(){
   let currentPartida = null;
 
   QUESTIONS.forEach(q => {
-    const partida = PARTIDAS.find(p => p.rows.includes(q.row));
+    const partida = FORM_SECTIONS.find(p => p.rows.includes(q.row));
     if(partida && partida !== currentPartida){
       currentPartida = partida;
       const h = document.createElement("div");
