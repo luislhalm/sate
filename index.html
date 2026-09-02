@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Presupuestador SATE</title>
+
+<!-- MSAL.js para login con cuenta Microsoft 365 -->
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<!-- jsPDF + html2canvas para exportar el presupuesto a PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+  :root{
+    --capa-naranja:#F08900;
+    --capa-purpura:#942E86;
+    --capa-negro:#3E3938;
+    --capa-rojo:#CE092C;
+    --capa-rosa:#C74D92;
+    --gris-claro:#F5F3F2;
+    --gris-borde:#DDD8D6;
+    --blanco:#FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    background:var(--gris-claro);
+    color:var(--capa-negro);
+    margin:0;
+    padding:0;
+  }
+  header{
+    background:var(--blanco);
+    border-bottom:3px solid var(--capa-naranja);
+    padding:14px 24px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  header h1{
+    font-size:18px;
+    margin:0;
+    color:var(--capa-purpura);
+    font-weight:700;
+  }
+  header .user-info{
+    font-size:13px;
+    color:#777;
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+  #app{
+    max-width:900px;
+    margin:24px auto;
+    padding:0 16px 60px;
+  }
+  .card{
+    background:var(--blanco);
+    border:1px solid var(--gris-borde);
+    border-radius:10px;
+    padding:24px;
+    margin-bottom:20px;
+  }
+  .tabs{
+    display:flex;
+    gap:4px;
+    margin-bottom:20px;
+  }
+  .tab-btn{
+    flex:1;
+    padding:12px;
+    border:none;
+    background:var(--blanco);
+    border:1px solid var(--gris-borde);
+    cursor:pointer;
+    font-weight:600;
+    color:#999;
+    border-radius:8px 8px 0 0;
+  }
+  .tab-btn.active{
+    color:var(--capa-purpura);
+    border-bottom:3px solid var(--capa-naranja);
+    background:var(--gris-claro);
+  }
+  .tab-btn:disabled{
+    cursor:not-allowed;
+    opacity:.5;
+  }
+  .partida-title{
+    color:var(--capa-purpura);
+    font-size:15px;
+    font-weight:700;
+    margin:28px 0 12px;
+    padding-bottom:6px;
+    border-bottom:2px solid var(--capa-naranja);
+  }
+  .partida-title:first-child{margin-top:0;}
+  .field{
+    margin-bottom:16px;
+  }
+  .field label{
+    display:block;
+    font-size:13px;
+    font-weight:600;
+    margin-bottom:6px;
+    color:var(--capa-negro);
+  }
+  .field select, .field input{
+    width:100%;
+    padding:10px 12px;
+    border:1px solid var(--gris-borde);
+    border-radius:6px;
+    font-size:14px;
+    font-family:inherit;
+    background:var(--blanco);
+  }
+  .field select:focus, .field input:focus{
+    outline:none;
+    border-color:var(--capa-naranja);
+  }
+  button.primary{
+    background:var(--capa-naranja);
+    color:var(--blanco);
+    border:none;
+    padding:12px 24px;
+    border-radius:6px;
+    font-size:14px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  button.primary:hover{background:#d67b00;}
+  button.secondary{
+    background:var(--blanco);
+    color:var(--capa-purpura);
+    border:1px solid var(--capa-purpura);
+    padding:12px 24px;
+    border-radius:6px;
+    font-size:14px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  button.secondary:hover{background:var(--gris-claro);}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-row{display:flex;gap:12px;margin-top:20px;}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    margin-bottom:24px;
+    font-size:13px;
+  }
+  table caption{
+    text-align:left;
+    font-weight:700;
+    color:var(--capa-purpura);
+    padding:10px 0 8px;
+    font-size:14px;
+    border-bottom:2px solid var(--capa-naranja);
+  }
+  th{
+    background:var(--gris-claro);
+    text-align:left;
+    padding:8px 10px;
+    font-weight:700;
+    border-bottom:1px solid var(--gris-borde);
+  }
+  td{
+    padding:7px 10px;
+    border-bottom:1px solid #EEE8E6;
+  }
+  td.num, th.num{text-align:right;}
+  td input[type=number]{
+    width:80px;
+    padding:4px 6px;
+    border:1px solid var(--gris-borde);
+    border-radius:4px;
+    text-align:right;
+  }
+  .pendiente{
+    color:var(--capa-rojo);
+    font-weight:600;
+    font-size:11px;
+  }
+  .total-row td{
+    font-weight:700;
+    border-top:2px solid var(--capa-negro);
+    border-bottom:none;
+  }
+  .grand-total{
+    text-align:right;
+    font-size:20px;
+    font-weight:700;
+    color:var(--capa-purpura);
+    margin-top:8px;
+  }
+  #loginScreen{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    height:80vh;
+    text-align:center;
+  }
+  .spinner{
+    border:3px solid var(--gris-borde);
+    border-top:3px solid var(--capa-naranja);
+    border-radius:50%;
+    width:32px;height:32px;
+    animation:spin 1s linear infinite;
+    margin:16px auto;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .error-box{
+    background:#FDECEC;
+    border:1px solid var(--capa-rojo);
+    color:var(--capa-rojo);
+    padding:12px 16px;
+    border-radius:6px;
+    font-size:13px;
+    margin-bottom:16px;
+  }
+  .hint{
+    font-size:12px;
+    color:#888;
+    margin-top:4px;
+  }
+  .toast{
+    position:fixed;
+    bottom:24px;
+    right:24px;
+    background:var(--capa-negro);
+    color:#fff;
+    padding:12px 18px;
+    border-radius:6px;
+    font-size:13px;
+    box-shadow:0 4px 12px rgba(0,0,0,.2);
+    z-index:999;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Presupuestador SATE</h1>
+  <div class="user-info" id="userInfo"></div>
+</header>
+
+<div id="app">
+
+  <!-- PANTALLA DE LOGIN -->
+  <div id="loginScreen">
+    <div id="loginBox">
+      <p>Accede con tu cuenta de Grupo Lopez Guillen para empezar a presupuestar.</p>
+      <button class="primary" id="loginBtn">Iniciar sesión con Microsoft</button>
+    </div>
+  </div>
+
+  <!-- APP PRINCIPAL (oculta hasta login) -->
+  <div id="mainApp" style="display:none;">
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tabFormBtn" onclick="showTab('form')">1. Datos de la obra</button>
+      <button class="tab-btn" id="tabBudgetBtn" onclick="showTab('budget')" disabled>2. Presupuesto</button>
+    </div>
+
+    <!-- TAB 1: FORMULARIO -->
+    <div id="tabForm" class="card">
+      <div id="formStatus"></div>
+      <form id="questionsForm"></form>
+      <div class="btn-row">
+        <button class="primary" id="calcBtn">Calcular presupuesto</button>
+      </div>
+    </div>
+
+    <!-- TAB 2: PRESUPUESTO -->
+    <div id="tabBudget" class="card" style="display:none;">
+      <div id="budgetStatus"></div>
+      <div id="budgetContent"></div>
+      <div class="btn-row">
+        <button class="secondary" onclick="showTab('form')">← Volver a editar datos</button>
+        <button class="primary" id="recalcBtn">Recalcular</button>
+        <button class="primary" id="pdfBtn">Exportar a PDF</button>
+        <button class="secondary" id="saveBtn">Guardar en SharePoint</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+   CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
+   ========================================================================= */
+const CONFIG = {
+  clientId: "b82973ee-356a-4e73-b366-50d192267164",
+  tenantId: "4af64d57-4be2-49ee-863f-1a7faee6e22b",
+  // La redirect URI se calcula sola a partir de dónde se sirve este archivo.
+  // Recuerda añadirla en Azure AD > Authentication > Single-page application.
+  redirectUri: window.location.origin + window.location.pathname,
+
+  // Sitio SharePoint que aloja ambas bibliotecas (mismo sitio que la app de Tarifas)
+  sharepointHost: "grupolopezguillensl.sharepoint.com",
+  sitePath: "/sites/APPtarifas",
+
+  // Biblioteca "Datos": Excel maestro con la Herramienta SATE
+  masterLibrary: "Datos",
+  masterFileName: "Herramienta SATE.xlsx",
+  masterSheetEntrada: "Entrada Plantilla",
+  masterTablePrecios: "Tabla1", // en la pestaña "Tarifa SATE - 2025"
+
+  // Biblioteca "Documentos compartidos": carpeta por usuario (email tal cual) / SATE
+  docsLibrary: "Documentos compartidos",
+  userSubfolder: "SATE",
+
+  scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All", "User.Read"]
+};
+
+/* =========================================================================
+   DEFINICIÓN DE LAS 19 PREGUNTAS (columna C de "Entrada Plantilla")
+   Las opciones de los desplegables (dropdown) se leen en vivo del Excel
+   maestro (rangos K5:K7, K11:K13, K28:K32, K38:K65, N9:N17, K22:K23) para
+   que si se añade una opción nueva en el Excel, aparezca sola en la app.
+   ========================================================================= */
+const QUESTIONS = [
+  { row: 3,  cell: "D3",  label: "Referencia de la obra",                         type: "text" },
+  { row: 4,  cell: "D4",  label: "Tipo de aislante",                              type: "list", listRange: "K5:K7" },
+  { row: 5,  cell: "D5",  label: "Metros cuadrados de fachada",                   type: "number" },
+  { row: 6,  cell: "D6",  label: "Sacos Aplictec Renovación",                     type: "number", formula: true }, // =D5, informativo/autocalculado
+  { row: 7,  cell: "D7",  label: "Espesor del aislante (mm)",                     type: "list", listRange: "N9:N17" },
+  { row: 8,  cell: "D8",  label: "Tipo de tacos",                                 type: "list", listRange: "K11:K13" },
+  { row: 9,  cell: "D9",  label: "Tipo de terminación",                           type: "list", listRange: "K28:K32" },
+  { row: 10, cell: "D10", label: "Código del color Acrílico",                     type: "list", listRange: "K38:K65" },
+  { row: 12, cell: "D12", label: "Metros lineales de fachada horizontal",         type: "number" },
+  { row: 15, cell: "D15", label: "Metros de fachada lateral con esquinas 90º",    type: "number" },
+  { row: 16, cell: "D16", label: "Tipo de perfil para esquina 90º",               type: "list", listRange: "K22:K23" },
+  { row: 17, cell: "D17", label: "Metros de fachada lateral con cierres laterales", type: "number" },
+  { row: 19, cell: "D19", label: "Número de ventanas",                           type: "number" },
+  { row: 20, cell: "D20", label: "Ventana largo (cm)",                            type: "number" },
+  { row: 21, cell: "D21", label: "Ventana alto (cm)",                             type: "number" },
+  { row: 25, cell: "D25", label: "Número de puertas",                            type: "number" },
+  { row: 26, cell: "D26", label: "Puerta largo (cm)",                             type: "number" },
+  { row: 28, cell: "D28", label: "Puerta alto (cm)",                              type: "number" }
+];
+// Nota: D6 (fila 6, "Sacos Aplictec Renovación") es en realidad "=D5" en el Excel
+// (se autocompleta a partir de los m² de fachada) — se trata como campo derivado,
+// no se pide al usuario.
+
+// Definición de las 4 partidas y qué filas de "Entrada Plantilla" caen en cada una
+const PARTIDAS = [
+  { titulo: "1. Sistema aislante y recubrimiento", rows: [4,5,6,7,8,9,10] },
+  { titulo: "2. Perfilería Arranque y esquinas",   rows: [12,13,14,15,16,17] },
+  { titulo: "3. Perfilería Ventanas",              rows: [19,20,21,22] },
+  { titulo: "4. Perfilería Puertas",                rows: [25,26,27,28] }
+];
+
+/* =========================================================================
+   ESTADO GLOBAL
+   ========================================================================= */
+let msalInstance, account, graphToken;
+let siteId, masterDriveItemId, docsLibraryId;
+let dropdownOptions = {}; // rango -> [valores]
+let lastBudget = null;    // último presupuesto calculado (para PDF / guardado)
+
+/* =========================================================================
+   AUTENTICACIÓN (MSAL.js — PKCE, sin backend)
+   ========================================================================= */
+function initMsal(){
+  msalInstance = new msal.PublicClientApplication({
+    auth: {
+      clientId: CONFIG.clientId,
+      authority: `https://login.microsoftonline.com/${CONFIG.tenantId}`,
+      redirectUri: CONFIG.redirectUri
+    },
+    cache: { cacheLocation: "sessionStorage" }
+  });
+}
+
+async function login(){
+  try{
+    const result = await msalInstance.loginPopup({ scopes: CONFIG.scopes });
+    account = result.account;
+    msalInstance.setActiveAccount(account);
+    await afterLogin();
+  }catch(err){
+    showLoginError(err);
+  }
+}
+
+async function getToken(){
+  const req = { scopes: CONFIG.scopes, account };
+  try{
+    const res = await msalInstance.acquireTokenSilent(req);
+    return res.accessToken;
+  }catch(err){
+    const res = await msalInstance.acquireTokenPopup(req);
+    return res.accessToken;
+  }
+}
+
+function showLoginError(err){
+  document.getElementById("loginBox").innerHTML = `
+    <div class="error-box">No se ha podido iniciar sesión.<br>${err.message || err}</div>
+    <button class="primary" id="loginBtn">Reintentar</button>`;
+  document.getElementById("loginBtn").onclick = login;
+}
+
+async function afterLogin(){
+  document.getElementById("loginScreen").style.display = "none";
+  document.getElementById("mainApp").style.display = "block";
+  document.getElementById("userInfo").innerHTML =
+    `${account.name || account.username} · <a href="#" onclick="logout();return false;">Cerrar sesión</a>`;
+
+  graphToken = await getToken();
+  await loadMasterData();
+}
+
+function logout(){
+  msalInstance.logoutPopup();
+}
+
+/* =========================================================================
+   LLAMADAS A MICROSOFT GRAPH
+   ========================================================================= */
+async function graphFetch(url, options = {}){
+  const token = graphToken || await getToken();
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  });
+  if(!res.ok){
+    const body = await res.text();
+    throw new Error(`Graph error ${res.status}: ${body}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function resolveSiteAndFiles(){
+  // Sitio SharePoint
+  const site = await graphFetch(
+    `https://graph.microsoft.com/v1.0/sites/${CONFIG.sharepointHost}:${CONFIG.sitePath}`
+  );
+  siteId = site.id;
+
+  // Excel maestro dentro de la biblioteca "Datos"
+  const masterPath = `/${CONFIG.masterLibrary}/${CONFIG.masterFileName}`;
+  const masterItem = await graphFetch(
+    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:${encodeURI(masterPath)}`
+  );
+  masterDriveItemId = masterItem.id;
+
+  // Biblioteca de documentos (para guardar el presupuesto)
+  const drives = await graphFetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drives`);
+  const docsDrive = drives.value.find(d => d.name === CONFIG.docsLibrary) || drives.value[0];
+  docsLibraryId = docsDrive.id;
+}
+
+// Crea una sesión de Excel NO persistente: los cálculos se hacen sobre una
+// copia en memoria del libro, sin tocar ni guardar el Excel maestro real.
+async function createWorkbookSession(){
+  const res = await graphFetch(
+    `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}/workbook/createSession`,
+    { method: "POST", body: JSON.stringify({ persistChanges: false }) }
+  );
+  return res.id;
+}
+
+async function closeWorkbookSession(sessionId){
+  try{
+    await graphFetch(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}/workbook/closeSession`,
+      { method: "POST", headers: { "workbook-session-id": sessionId } }
+    );
+  }catch(e){ /* no crítico */ }
+}
+
+async function readRange(sheet, range, sessionId){
+  const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}` +
+    `/workbook/worksheets('${encodeURIComponent(sheet)}')/range(address='${range}')`;
+  return graphFetch(url, { headers: sessionId ? { "workbook-session-id": sessionId } : {} });
+}
+
+async function writeRange(sheet, range, values, sessionId){
+  const url = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${masterDriveItemId}` +
+    `/workbook/worksheets('${encodeURIComponent(sheet)}')/range(address='${range}')`;
+  return graphFetch(url, {
+    method: "PATCH",
+    headers: { "workbook-session-id": sessionId },
+    body: JSON.stringify({ values })
+  });
+}
+
+/* =========================================================================
+   CARGA INICIAL: sitio, excel maestro, opciones de los desplegables
+   ========================================================================= */
+async function loadMasterData(){
+  const status = document.getElementById("formStatus");
+  status.innerHTML = `<div class="spinner"></div><p>Cargando datos del Excel maestro…</p>`;
+  try{
+    await resolveSiteAndFiles();
+
+    // Sesión no persistente solo para leer los rangos de opciones
+    const sessionId = await createWorkbookSession();
+    for(const q of QUESTIONS){
+      if(q.type === "list" && !dropdownOptions[q.listRange]){
+        const r = await readRange(CONFIG.masterSheetEntrada, q.listRange, sessionId);
+        dropdownOptions[q.listRange] = r.values.map(row => row[0]).filter(v => v !== "" && v !== null);
+      }
+    }
+    await closeWorkbookSession(sessionId);
+
+    status.innerHTML = "";
+    renderForm();
+  }catch(err){
+    status.innerHTML = `<div class="error-box">No se ha podido cargar el Excel maestro.<br>${err.message}</div>`;
+  }
+}
+
+/* =========================================================================
+   RENDER DEL FORMULARIO (agrupado visualmente por partida, como el Excel)
+   ========================================================================= */
+function renderForm(){
+  const form = document.getElementById("questionsForm");
+  form.innerHTML = "";
+  let currentPartida = null;
+
+  QUESTIONS.forEach(q => {
+    const partida = PARTIDAS.find(p => p.rows.includes(q.row));
+    if(partida && partida !== currentPartida){
+      currentPartida = partida;
+      const h = document.createElement("div");
+      h.className = "partida-title";
+      h.textContent = partida.titulo;
+      form.appendChild(h);
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    const label = document.createElement("label");
+    label.textContent = q.label;
+    label.htmlFor = q.cell;
+    wrap.appendChild(label);
+
+    let input;
+    if(q.type === "list"){
+      input = document.createElement("select");
+      input.id = q.cell;
+      const opts = dropdownOptions[q.listRange] || [];
+      input.innerHTML = `<option value="">-- Selecciona --</option>` +
+        opts.map(o => `<option value="${o}">${o}</option>`).join("");
+    }else if(q.type === "number"){
+      input = document.createElement("input");
+      input.type = "number";
+      input.id = q.cell;
+      input.min = "0";
+      input.step = "any";
+    }else{
+      input = document.createElement("input");
+      input.type = "text";
+      input.id = q.cell;
+    }
+    input.required = true;
+    wrap.appendChild(input);
+    form.appendChild(wrap);
+  });
+}
+
+function readFormValues(){
+  const values = {};
+  QUESTIONS.forEach(q => {
+    const el = document.getElementById(q.cell);
+    let v = el.value;
+    if(q.type === "number") v = v === "" ? "" : Number(v);
+    values[q.cell] = v;
+  });
+  return values;
+}
+
+/* =========================================================================
+   CÁLCULO: escribe las respuestas en una sesión de Excel no persistente
+   y lee de vuelta los resultados que el propio Excel calcula (E:I).
+   Así se reutiliza EXACTAMENTE la misma lógica que ya está validada en el
+   Excel maestro, sin tener que reimplementar cada fórmula en JavaScript.
+   ========================================================================= */
+async function calcularPresupuesto(){
+  const budgetStatus = document.getElementById("budgetStatus");
+  const budgetContent = document.getElementById("budgetContent");
+  budgetContent.innerHTML = "";
+  budgetStatus.innerHTML = `<div class="spinner"></div><p>Calculando presupuesto…</p>`;
+  showTab("budget");
+  document.getElementById("tabBudgetBtn").disabled = false;
+
+  const answers = readFormValues();
+  let sessionId;
+  try{
+    sessionId = await createWorkbookSession();
+
+    // Escribimos cada respuesta en su celda D correspondiente
+    for(const q of QUESTIONS){
+      await writeRange(CONFIG.masterSheetEntrada, q.cell, [[answers[q.cell]]], sessionId);
+    }
+
+    // Leemos de vuelta E:I para todas las filas de las 4 partidas
+    const allRows = PARTIDAS.flatMap(p => p.rows);
+    const minRow = Math.min(...allRows), maxRow = Math.max(...allRows);
+    const range = `E${minRow}:I${maxRow}`;
+    const result = await readRange(CONFIG.masterSheetEntrada, range, sessionId);
+
+    lastBudget = buildBudget(result.values, minRow);
+    renderBudget(lastBudget);
+    budgetStatus.innerHTML = "";
+  }catch(err){
+    budgetStatus.innerHTML = `<div class="error-box">No se ha podido calcular el presupuesto.<br>${err.message}</div>`;
+  }finally{
+    if(sessionId) await closeWorkbookSession(sessionId);
+  }
+}
+
+// Construye la estructura de partidas -> líneas (agrupando por código dentro
+// de cada partida) a partir de los valores E:I leídos del Excel.
+function buildBudget(values, minRow){
+  const partidasResult = PARTIDAS.map(p => ({ titulo: p.titulo, lineas: {}, total: 0 }));
+
+  PARTIDAS.forEach((p, idx) => {
+    p.rows.forEach(row => {
+      const i = row - minRow;
+      const [cod, desc, cant, precio, importe] = values[i] || [];
+      if(!cod || cod === "" ) return; // fila sin artículo generado
+
+      const codKey = String(cod);
+      const target = partidasResult[idx];
+      if(!target.lineas[codKey]){
+        target.lineas[codKey] = {
+          codigo: codKey,
+          descripcion: desc || "",
+          cantidad: 0,
+          precio: Number(precio) || 0,
+          pendiente: codKey.toLowerCase().includes("pendiente") || codKey.toLowerCase().includes("crear") || codKey.toLowerCase() === "xxxx"
+        };
+      }
+      target.lineas[codKey].cantidad += Number(cant) || 0;
+    });
+    target_total(partidasResult[idx]);
+  });
+
+  function target_total(p){
+    p.lineasArr = Object.values(p.lineas).map(l => ({ ...l, importe: l.cantidad * l.precio }));
+    p.total = p.lineasArr.reduce((s, l) => s + l.importe, 0);
+  }
+
+  const granTotal = partidasResult.reduce((s, p) => s + p.total, 0);
+  return { partidas: partidasResult, granTotal, fecha: new Date(), referencia: readFormValues()["D3"] || "" };
+}
+
+/* =========================================================================
+   RENDER DEL PRESUPUESTO (editable: cantidades se pueden ajustar a mano)
+   ========================================================================= */
+function renderBudget(budget){
+  const content = document.getElementById("budgetContent");
+  let html = `<h2 style="color:var(--capa-purpura);margin-top:0;">Presupuesto — ${budget.referencia || "sin referencia"}</h2>`;
+
+  budget.partidas.forEach((p, pIdx) => {
+    if(p.lineasArr.length === 0) return;
+    html += `<table><caption>${p.titulo}</caption>
+      <thead><tr>
+        <th>Cód. artículo</th><th>Descripción</th>
+        <th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th>
+      </tr></thead><tbody>`;
+    p.lineasArr.forEach((l, lIdx) => {
+      html += `<tr>
+        <td>${l.codigo} ${l.pendiente ? '<div class="pendiente">código pendiente</div>' : ''}</td>
+        <td>${l.descripcion}</td>
+        <td class="num"><input type="number" step="any" value="${l.cantidad.toFixed(2)}"
+             onchange="updateLinea(${pIdx},${lIdx},this.value)"></td>
+        <td class="num">${l.precio.toFixed(2)} €</td>
+        <td class="num">${l.importe.toFixed(2)} €</td>
+      </tr>`;
+    });
+    html += `<tr class="total-row"><td colspan="4">Subtotal partida</td><td class="num">${p.total.toFixed(2)} €</td></tr>`;
+    html += `</tbody></table>`;
+  });
+
+  html += `<div class="grand-total">TOTAL PRESUPUESTO: ${budget.granTotal.toFixed(2)} €</div>`;
+  content.innerHTML = html;
+}
+
+function updateLinea(pIdx, lIdx, nuevaCantidad){
+  const l = lastBudget.partidas[pIdx].lineasArr[lIdx];
+  l.cantidad = Number(nuevaCantidad) || 0;
+  l.importe = l.cantidad * l.precio;
+  lastBudget.partidas[pIdx].total = lastBudget.partidas[pIdx].lineasArr.reduce((s, x) => s + x.importe, 0);
+  lastBudget.granTotal = lastBudget.partidas.reduce((s, p) => s + p.total, 0);
+  renderBudget(lastBudget);
+}
+
+/* =========================================================================
+   EXPORTAR A PDF (html2canvas + jsPDF, todo en el navegador)
+   ========================================================================= */
+async function exportarPDF(){
+  const content = document.getElementById("budgetContent");
+  const canvas = await html2canvas(content, { scale: 2, backgroundColor: "#ffffff" });
+  const imgData = canvas.toDataURL("image/png");
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF("p", "mm", "a4");
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const imgWidth = pageWidth - 20;
+  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+  let heightLeft = imgHeight, position = 10;
+  pdf.addImage(imgData, "PNG", 10, position, imgWidth, imgHeight);
+  heightLeft -= (pdf.internal.pageSize.getHeight() - 20);
+  while(heightLeft > 0){
+    position = heightLeft - imgHeight + 10;
+    pdf.addPage();
+    pdf.addImage(imgData, "PNG", 10, position, imgWidth, imgHeight);
+    heightLeft -= (pdf.internal.pageSize.getHeight() - 20);
+  }
+
+  const nombre = `Presupuesto SATE - ${(lastBudget.referencia || "sin referencia")} - ${formatFecha(lastBudget.fecha)}.pdf`;
+  pdf.save(nombre);
+  return { blob: pdf.output("blob"), nombre };
+}
+
+function formatFecha(d){
+  return d.toISOString().slice(0,10);
+}
+
+/* =========================================================================
+   GUARDAR EN SHAREPOINT (carpeta del usuario / SATE)
+   ========================================================================= */
+async function guardarEnSharePoint(){
+  const status = document.getElementById("budgetStatus");
+  status.innerHTML = `<div class="spinner"></div><p>Guardando en SharePoint…</p>`;
+  try{
+    const { blob, nombre } = await exportarPDF();
+    const email = account.username; // el correo tal cual, como nombre de carpeta
+    const path = `/${CONFIG.docsLibrary}/${email}/${CONFIG.userSubfolder}/${nombre}`;
+
+    await fetch(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${docsLibraryId}/root:${encodeURI(path)}:/content`,
+      {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${graphToken}`,
+          "Content-Type": "application/pdf"
+        },
+        body: blob
+      }
+    );
+    status.innerHTML = "";
+    showToast("Presupuesto guardado en SharePoint ✔");
+  }catch(err){
+    status.innerHTML = `<div class="error-box">No se ha podido guardar en SharePoint.<br>${err.message}</div>`;
+  }
+}
+
+function showToast(msg){
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+/* =========================================================================
+   NAVEGACIÓN DE PESTAÑAS
+   ========================================================================= */
+function showTab(tab){
+  document.getElementById("tabForm").style.display = tab === "form" ? "block" : "none";
+  document.getElementById("tabBudget").style.display = tab === "budget" ? "block" : "none";
+  document.getElementById("tabFormBtn").classList.toggle("active", tab === "form");
+  document.getElementById("tabBudgetBtn").classList.toggle("active", tab === "budget");
+}
+
+/* =========================================================================
+   ARRANQUE
+   ========================================================================= */
+window.addEventListener("DOMContentLoaded", async () => {
+  initMsal();
+  document.getElementById("loginBtn").onclick = login;
+  document.getElementById("calcBtn").onclick = (e) => { e.preventDefault(); calcularPresupuesto(); };
+  document.getElementById("recalcBtn").onclick = calcularPresupuesto;
+  document.getElementById("pdfBtn").onclick = exportarPDF;
+  document.getElementById("saveBtn").onclick = guardarEnSharePoint;
+
+  // Si ya hay una cuenta activa en sessionStorage, evitamos pedir login de nuevo
+  await msalInstance.handleRedirectPromise().catch(() => {});
+  const accounts = msalInstance.getAllAccounts();
+  if(accounts.length > 0){
+    account = accounts[0];
+    msalInstance.setActiveAccount(account);
+    afterLogin();
+  }
+});
+</script>
+
+</body>
+</html>
