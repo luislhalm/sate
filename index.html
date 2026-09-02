@@ -748,9 +748,13 @@ async function guardarEnSharePoint(){
   try{
     const { blob, nombre } = await exportarPDF();
     const email = account.username; // el correo tal cual, como nombre de carpeta
-    const path = `/${CONFIG.docsLibrary}/${email}/${CONFIG.userSubfolder}/${nombre}`;
 
-    await fetch(
+    // Nos aseguramos de que exista la carpeta {email}/SATE dentro de la biblioteca
+    // "Documentos" antes de subir el archivo (Graph no crea carpetas intermedias solo).
+    await ensureFolderPath(`/${email}/${CONFIG.userSubfolder}`);
+
+    const path = `/${email}/${CONFIG.userSubfolder}/${nombre}`;
+    const res = await fetch(
       `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root:${encodeURI(path)}:/content`,
       {
         method: "PUT",
@@ -761,10 +765,39 @@ async function guardarEnSharePoint(){
         body: blob
       }
     );
+    if(!res.ok){
+      const body = await res.text();
+      throw new Error(`Graph error ${res.status}: ${body}`);
+    }
+
     status.innerHTML = "";
-    showToast("Presupuesto guardado en SharePoint ✔");
+    showToast(`Presupuesto guardado en Documentos/${email}/${CONFIG.userSubfolder}/ ✔`);
   }catch(err){
     status.innerHTML = `<div class="error-box">No se ha podido guardar en SharePoint.<br>${err.message}</div>`;
+  }
+}
+
+// Crea, si no existen, cada carpeta del path indicado (ej: "/email/SATE")
+// dentro de la biblioteca de documentos.
+async function ensureFolderPath(path){
+  const parts = path.split("/").filter(Boolean);
+  let currentPath = "";
+  for(const part of parts){
+    const parentPath = currentPath;
+    currentPath += "/" + part;
+    const exists = await fetch(
+      `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root:${encodeURI(currentPath)}`,
+      { headers: { "Authorization": `Bearer ${graphToken}` } }
+    );
+    if(exists.status === 404){
+      const createUrl = parentPath === ""
+        ? `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root/children`
+        : `https://graph.microsoft.com/v1.0/drives/${docsLibraryId}/root:${encodeURI(parentPath)}:/children`;
+      await graphFetch(createUrl, {
+        method: "POST",
+        body: JSON.stringify({ name: part, folder: {}, "@microsoft.graph.conflictBehavior": "rename" })
+      });
+    }
   }
 }
 
