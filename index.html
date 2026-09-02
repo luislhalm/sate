@@ -370,7 +370,7 @@ const QUESTIONS = [
 // Definición de las 4 partidas y qué filas de "Entrada Plantilla" caen en cada una
 const PARTIDAS = [
   { titulo: "1. Sistema aislante y recubrimiento", rows: [4,5,6,7,8,9,10] },
-  { titulo: "2. Perfilería Arranque y esquinas",   rows: [12,13,14,15,16,17] },
+  { titulo: "2. Perfilería de arranque, cierre y esquinas", rows: [11,12,13,14,15,16,17] },
   { titulo: "3. Perfilería Ventanas",              rows: [18,19,20,21,22] },
   { titulo: "4. Perfilería Puertas",                rows: [24,25,26,27,28] }
 ];
@@ -690,6 +690,10 @@ function buildBudget(values, minRow){
 /* =========================================================================
    RENDER DEL PRESUPUESTO (editable: cantidades se pueden ajustar a mano)
    ========================================================================= */
+function fmt(n){
+  return n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function renderBudget(budget){
   const content = document.getElementById("budgetContent");
   let html = `
@@ -714,14 +718,14 @@ function renderBudget(budget){
              onchange="updateLinea(${pIdx},${lIdx},'cantidad',this.value)"></td>
         <td class="num"><input type="number" step="any" value="${l.precio.toFixed(2)}"
              onchange="updateLinea(${pIdx},${lIdx},'precio',this.value)"> €</td>
-        <td class="num">${l.importe.toFixed(2)} €</td>
+        <td class="num">${fmt(l.importe)} €</td>
       </tr>`;
     });
-    html += `<tr class="total-row"><td colspan="4">Subtotal partida</td><td class="num">${p.total.toFixed(2)} €</td></tr>`;
+    html += `<tr class="total-row"><td colspan="4">Subtotal partida</td><td class="num">${fmt(p.total)} €</td></tr>`;
     html += `</tbody></table>`;
   });
 
-  html += `<div class="grand-total">TOTAL PRESUPUESTO: ${budget.granTotal.toFixed(2)} €</div>`;
+  html += `<div class="grand-total">TOTAL PRESUPUESTO: ${fmt(budget.granTotal)} €</div>`;
   content.innerHTML = html;
 }
 
