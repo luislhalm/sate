@@ -762,8 +762,25 @@ function updateLinea(pIdx, lIdx, campo, nuevoValor){
    misma imagen completa), para que ninguna fila quede cortada a medias.
    ========================================================================= */
 async function generarPDF(){
-  const content = document.getElementById("budgetContent");
-  const canvas = await html2canvas(content, { scale: 2, backgroundColor: "#ffffff" });
+  const original = document.getElementById("budgetContent");
+
+  // Clonamos el contenido en un contenedor oculto con ancho fijo "de escritorio"
+  // (880px), para que el PDF salga siempre igual se pulse desde el móvil o el PC,
+  // sin depender del ancho real de la pantalla ni de scrolls horizontales.
+  const clone = original.cloneNode(true);
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = "position:fixed;top:0;left:-99999px;width:880px;background:#ffffff;padding:20px;";
+  // Las tablas clonadas no deben heredar el scroll horizontal del móvil
+  clone.querySelectorAll('div[style*="overflow-x"]').forEach(d => d.style.overflowX = "visible");
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  let canvas;
+  try{
+    canvas = await html2canvas(wrapper, { scale: 2, backgroundColor: "#ffffff", windowWidth: 920 });
+  }finally{
+    document.body.removeChild(wrapper);
+  }
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF("p", "mm", "a4");
