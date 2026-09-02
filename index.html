@@ -728,30 +728,52 @@ function updateLinea(pIdx, lIdx, nuevaCantidad){
 
 /* =========================================================================
    EXPORTAR A PDF (html2canvas + jsPDF, todo en el navegador)
+   Recorta el canvas en páginas reales de A4 (en vez de reposicionar la
+   misma imagen completa), para que ninguna fila quede cortada a medias.
    ========================================================================= */
-async function exportarPDF(){
+async function generarPDF(){
   const content = document.getElementById("budgetContent");
   const canvas = await html2canvas(content, { scale: 2, backgroundColor: "#ffffff" });
-  const imgData = canvas.toDataURL("image/png");
+
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF("p", "mm", "a4");
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const imgWidth = pageWidth - 20;
-  const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  const marginMm = 10;
+  const pageWidthMm = pdf.internal.pageSize.getWidth() - marginMm * 2;
+  const pageHeightMm = pdf.internal.pageSize.getHeight() - marginMm * 2;
 
-  let heightLeft = imgHeight, position = 10;
-  pdf.addImage(imgData, "PNG", 10, position, imgWidth, imgHeight);
-  heightLeft -= (pdf.internal.pageSize.getHeight() - 20);
-  while(heightLeft > 0){
-    position = heightLeft - imgHeight + 10;
-    pdf.addPage();
-    pdf.addImage(imgData, "PNG", 10, position, imgWidth, imgHeight);
-    heightLeft -= (pdf.internal.pageSize.getHeight() - 20);
+  // Relación px -> mm según el ancho de la imagen renderizada
+  const pxPerMm = canvas.width / pageWidthMm;
+  const pageHeightPx = Math.floor(pageHeightMm * pxPerMm);
+
+  let renderedPx = 0, first = true;
+  while(renderedPx < canvas.height){
+    const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = canvas.width;
+    pageCanvas.height = sliceHeightPx;
+    const ctx = pageCanvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+
+    const imgData = pageCanvas.toDataURL("image/png");
+    const imgHeightMm = sliceHeightPx / pxPerMm;
+
+    if(!first) pdf.addPage();
+    pdf.addImage(imgData, "PNG", marginMm, marginMm, pageWidthMm, imgHeightMm);
+
+    renderedPx += sliceHeightPx;
+    first = false;
   }
 
   const nombre = `Presupuesto SATE - ${(lastBudget.referencia || "sin referencia")} - ${formatFecha(lastBudget.fecha)}.pdf`;
+  return { pdf, nombre };
+}
+
+async function exportarPDF(){
+  const { pdf, nombre } = await generarPDF();
   pdf.save(nombre);
-  return { blob: pdf.output("blob"), nombre };
 }
 
 function formatFecha(d){
@@ -765,17 +787,10 @@ async function guardarEnSharePoint(){
   const status = document.getElementById("budgetStatus");
   status.innerHTML = `<div class="spinner"></div><p>Guardando en SharePoint…</p>`;
   try{
-    const { blob, nombre } = await exportarPDF();
     const email = account.username; // el correo tal cual, como nombre de carpeta
-
     await ensureFolderPath(`/${email}/${CONFIG.userSubfolder}`);
-    const baseName = nombre.replace(/\.pdf$/i, "");
 
-    // PDF final
-    const pdfPath = `/${email}/${CONFIG.userSubfolder}/${baseName}.pdf`;
-    await uploadFile(pdfPath, blob, "application/pdf");
-
-    // Datos (respuestas + presupuesto calculado) para poder reabrir y editar
+    const baseName = `Presupuesto SATE - ${(lastBudget.referencia || "sin referencia")} - ${formatFecha(lastBudget.fecha)}`;
     const dataPayload = {
       referencia: lastBudget.referencia,
       fecha: lastBudget.fecha,
