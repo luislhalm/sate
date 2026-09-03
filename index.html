@@ -342,7 +342,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.1";
+const APP_VERSION = "1.2";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -707,9 +707,12 @@ function buildBudget(values, minRow){
     p.rows.forEach(row => {
       const i = row - minRow;
       const [cod, desc, cant, precio, importe] = values[i] || [];
-      if(!cod || cod === "" ) return; // fila sin artículo generado
+      if(cod === undefined || cod === null || cod === "") return; // fila sin artículo generado
 
-      const codKey = String(cod);
+      // Códigos numéricos cortos (p.ej. 0 cuando el Excel aún no tiene código
+      // asignado para esa combinación) se muestran con el mismo formato de
+      // 6 dígitos que el resto de códigos, en vez de descartarse.
+      const codKey = typeof cod === "number" ? String(cod).padStart(6, "0") : String(cod);
       const esPendiente = codKey.toLowerCase().includes("pendiente") || codKey.toLowerCase().includes("crear") || codKey.toLowerCase() === "xxxx";
       // Si el código es un placeholder ("pendiente", "Crear código"...), varios
       // artículos DISTINTOS pueden compartirlo — agrupamos entonces por
