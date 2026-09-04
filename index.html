@@ -170,7 +170,7 @@
     border-bottom:1px solid #EEE8E6;
   }
   td.num, th.num{text-align:right;}
-  td input[type=number]{
+  td input[type=number], td input[type=text]{
     width:80px;
     padding:4px 6px;
     border:1px solid var(--gris-borde);
@@ -245,7 +245,7 @@
     .tabs{ flex-wrap:wrap; }
     table{ font-size:11.5px; }
     th, td{ padding:6px 4px; }
-    td input[type=number]{
+    td input[type=number], td input[type=text]{
       width:100%;
       max-width:64px;
       padding:4px;
@@ -342,7 +342,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.5";
+const APP_VERSION = "1.6";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -418,7 +418,8 @@ const PARTIDAS = [
   { titulo: "1. Sistema aislante y recubrimiento", rows: [4,5,6,7,8,9,10] },
   { titulo: "2. Perfilería de arranque, cierre y esquinas", rows: [12,13,14,15,16,17] },
   { titulo: "3. Perfilería Ventanas",              rows: [19,20,21,22,23] },
-  { titulo: "4. Perfilería Puertas",                rows: [25,26,27,28] }
+  { titulo: "4. Perfilería Puertas",                rows: [25,26,27,28] },
+  { titulo: "5. Otras partidas",                   rows: [] }
 ];
 // Nota: las filas 11, 18 y 24 son a la vez el título de la sección (en E) y una
 // pregunta del formulario (en D) — su valor D se traslada a la fila donde se
@@ -788,6 +789,15 @@ function fmt(n){
   return n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Convierte un texto en formato español (punto de miles, coma decimal) a número.
+// Admite también que el usuario escriba con punto decimal por costumbre.
+function parseEsNumber(str){
+  if(typeof str !== "string") return Number(str) || 0;
+  const limpio = str.trim().replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(limpio);
+  return isNaN(n) ? 0 : n;
+}
+
 function renderBudget(budget){
   const content = document.getElementById("budgetContent");
   let html = `
@@ -808,9 +818,9 @@ function renderBudget(budget){
       html += `<tr>
         <td>${l.codigo} ${l.pendiente ? '<div class="pendiente">código pendiente</div>' : ''}</td>
         <td>${l.descripcion}</td>
-        <td class="num"><input type="number" step="any" value="${l.cantidad.toFixed(2)}"
+        <td class="num"><input type="text" inputmode="decimal" value="${fmt(l.cantidad)}"
              onchange="updateLinea(${pIdx},${lIdx},'cantidad',this.value)"></td>
-        <td class="num"><input type="number" step="any" value="${l.precio.toFixed(2)}"
+        <td class="num"><input type="text" inputmode="decimal" value="${fmt(l.precio)}"
              onchange="updateLinea(${pIdx},${lIdx},'precio',this.value)"> €</td>
         <td class="num"><input type="number" step="any" min="0" max="100" value="${(l.dto||0).toFixed(2)}"
              onchange="updateLinea(${pIdx},${lIdx},'dto',this.value)"> %</td>
@@ -827,7 +837,7 @@ function renderBudget(budget){
 
 function updateLinea(pIdx, lIdx, campo, nuevoValor){
   const l = lastBudget.partidas[pIdx].lineasArr[lIdx];
-  l[campo] = Number(nuevoValor) || 0;
+  l[campo] = (campo === "cantidad" || campo === "precio") ? parseEsNumber(nuevoValor) : (Number(nuevoValor) || 0);
   l.importe = l.cantidad * l.precio * (1 - (l.dto || 0) / 100);
   lastBudget.partidas[pIdx].total = lastBudget.partidas[pIdx].lineasArr.reduce((s, x) => s + x.importe, 0);
   lastBudget.granTotal = lastBudget.partidas.reduce((s, p) => s + p.total, 0);
@@ -862,11 +872,8 @@ function renderArticleSearchResults(query){
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--gris-borde);">
       <div style="flex:1;min-width:180px;"><strong>${a.codigo}</strong> — ${a.descripcion} <span class="hint">(${a.precio.toFixed(2)} €)</span></div>
       <input type="number" id="qty_${idx}" value="1" min="0.01" step="any" style="width:70px;padding:6px;border:1px solid var(--gris-borde);border-radius:4px;" title="Cantidad">
-      <select id="partida_${idx}" style="padding:6px;border:1px solid var(--gris-borde);border-radius:4px;">
-        <option value="0">Partida 1</option>
-        <option value="1">Partida 2</option>
-        <option value="2">Partida 3</option>
-        <option value="3">Partida 4</option>
+      <select id="partida_${idx}" style="padding:6px;border:1px solid var(--gris-borde);border-radius:4px;max-width:220px;">
+        ${PARTIDAS.map((p, i) => `<option value="${i}">${p.titulo}</option>`).join("")}
       </select>
       <button class="secondary" style="padding:6px 12px;font-size:12px;" onclick="addManualArticle(${idx})">Añadir</button>
     </div>`).join("");
@@ -886,7 +893,7 @@ function addManualArticle(idx){
   document.getElementById("articleSearchInput").value = "";
   document.getElementById("articleSearchResults").innerHTML = "";
   renderManualArticlesList();
-  showToast(`"${articulo.descripcion}" añadido a la lista (partida ${partidaIdx + 1})`);
+  showToast(`"${articulo.descripcion}" añadido a la lista (${PARTIDAS[partidaIdx].titulo})`);
 }
 
 function removeManualArticle(idx){
@@ -904,7 +911,7 @@ function renderManualArticlesList(){
   el.innerHTML = `<p class="hint" style="margin-bottom:6px;">Artículos que se añadirán al calcular el presupuesto:</p>` +
     manualArticles.map((a, idx) => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--gris-borde);font-size:13px;">
-        <div>${a.codigo} — ${a.descripcion} · ${a.cantidad} uds · Partida ${a.partidaIdx + 1}</div>
+        <div>${a.codigo} — ${a.descripcion} · ${a.cantidad} uds · ${PARTIDAS[a.partidaIdx].titulo}</div>
         <button class="secondary" style="padding:4px 10px;font-size:11px;" onclick="removeManualArticle(${idx})">Quitar</button>
       </div>`).join("");
 }
@@ -946,9 +953,10 @@ async function generarPDF(){
   // Las tablas clonadas no deben heredar el scroll horizontal del móvil
   clone.querySelectorAll('div[style*="overflow-x"]').forEach(d => d.style.overflowX = "visible");
   // En el PDF los campos editables se muestran como texto plano, no como formulario
-  clone.querySelectorAll('input[type="number"]').forEach(inp => {
+  clone.querySelectorAll('input[type="number"], input[type="text"]').forEach(inp => {
     const span = document.createElement("span");
-    span.textContent = fmt(Number(inp.value) || 0);
+    const valor = inp.type === "text" ? parseEsNumber(String(inp.value)) : (Number(inp.value) || 0);
+    span.textContent = fmt(valor);
     inp.replaceWith(span);
   });
   wrapper.appendChild(clone);
