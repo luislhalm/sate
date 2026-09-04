@@ -342,7 +342,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.6";
+const APP_VERSION = "1.7";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -786,7 +786,12 @@ function buildBudget(values, minRow, dtoDefault){
    RENDER DEL PRESUPUESTO (editable: cantidades se pueden ajustar a mano)
    ========================================================================= */
 function fmt(n){
-  return n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n = Number(n) || 0;
+  const negativo = n < 0;
+  n = Math.abs(n);
+  const [enteros, decimales] = n.toFixed(2).split(".");
+  const enterosConPuntos = enteros.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return (negativo ? "-" : "") + enterosConPuntos + "," + decimales;
 }
 
 // Convierte un texto en formato español (punto de miles, coma decimal) a número.
