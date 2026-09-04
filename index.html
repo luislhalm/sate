@@ -342,7 +342,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.2";
+const APP_VERSION = "1.3";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -359,6 +359,8 @@ const CONFIG = {
   masterLibrary: "Datos",
   masterFileName: "Herramienta SATE.xlsx",
   masterSheetEntrada: "Entrada Plantilla",
+  masterSheetTarifa: "Tarifa SATE - 2025",
+  masterTarifaRange: "B4:G105", // Código, Descripción, Longitud nombre, Tipo, Unidad, Precio
   masterTablePrecios: "Tabla1", // en la pestaña "Tarifa SATE - 2025"
 
   // Biblioteca "Documentos compartidos": carpeta por usuario (email tal cual) / SATE
@@ -382,7 +384,7 @@ const QUESTIONS = [
   { row: 7,  cell: "D7",  label: "Tipo de tacos",                                 type: "list", listRange: "K11:K13" },
   { row: 8,  cell: "D8",  label: "Tipo de terminación",                           type: "list", listRange: "K28:K32" },
   { row: 9,  cell: "D9",  label: "Código del color Acrílico",                     type: "list", listRange: "K38:K65" },
-  { row: 11, cell: "D11", label: "Metros lineales de fachada horizontal",         type: "number" },
+  { row: 11, cell: "D11", label: "Metros lineales de perímetro de fachada",         type: "number" },
   { row: 14, cell: "D14", label: "Metros de fachada lateral con esquinas 90º",    type: "number" },
   { row: 15, cell: "D15", label: "Tipo de perfil para esquina 90º",               type: "list", listRange: "K22:K23" },
   { row: 16, cell: "D16", label: "Metros de fachada lateral con cierres laterales", type: "number" },
@@ -391,7 +393,8 @@ const QUESTIONS = [
   { row: 20, cell: "D20", label: "Ventana alto (cm)",                             type: "number" },
   { row: 24, cell: "D24", label: "Número de puertas",                            type: "number" },
   { row: 25, cell: "D25", label: "Puerta largo (cm)",                             type: "number" },
-  { row: 27, cell: "D27", label: "Puerta alto (cm)",                              type: "number" }
+  { row: 27, cell: "D27", label: "Puerta alto (cm)",                              type: "number" },
+  { row: 29, cell: "descuentoGlobal", label: "Incluir un descuento comercial (%)", type: "number", appOnly: true }
 ];
 // Nota: "Cierre superior de fachada" (D12, =D11) y "Código del Color Fondo"
 // (D10, derivado de D8/D9) son campos calculados por el propio Excel — no se
@@ -428,6 +431,7 @@ const PARTIDAS = [
 let msalInstance, account, graphToken;
 let siteId, masterDriveId, masterDriveItemId, docsLibraryId;
 let dropdownOptions = {}; // rango -> [valores]
+let TARIFA_CATALOG = []; // {codigo, descripcion, precio} — para el buscador de artículos manuales
 let lastBudget = null;    // último presupuesto calculado (para PDF / guardado)
 
 /* =========================================================================
@@ -589,6 +593,18 @@ async function loadMasterData(){
         dropdownOptions[q.listRange] = r.values.map(row => row[0]).filter(v => v !== "" && v !== null);
       }
     }
+
+    // Catálogo completo de la tarifa (Código/Descripción/Precio), para poder
+    // buscar y añadir artículos manuales al presupuesto.
+    const tarifaRange = await readRange(CONFIG.masterSheetTarifa, CONFIG.masterTarifaRange, sessionId);
+    TARIFA_CATALOG = tarifaRange.values
+      .filter(row => row[0] !== "" && row[0] !== null)
+      .map(row => ({
+        codigo: typeof row[0] === "number" ? String(row[0]).padStart(6, "0") : String(row[0]),
+        descripcion: String(row[1] || "").replace(/\n/g, " ").trim(),
+        precio: Number(row[5]) || 0
+      }));
+
     await closeWorkbookSession(sessionId);
 
     status.innerHTML = "";
@@ -641,7 +657,8 @@ function renderForm(){
       input.type = "text";
       input.id = q.cell;
     }
-    input.required = true;
+    input.required = !q.appOnly;
+    if(q.appOnly) input.placeholder = "0";
     wrap.appendChild(input);
     form.appendChild(wrap);
   });
@@ -677,8 +694,10 @@ async function calcularPresupuesto(){
   try{
     sessionId = await createWorkbookSession();
 
-    // Escribimos cada respuesta en su celda D correspondiente
+    // Escribimos cada respuesta en su celda D correspondiente (excepto las
+    // preguntas "appOnly", que son propias de la app y no existen en el Excel)
     for(const q of QUESTIONS){
+      if(q.appOnly) continue;
       await writeRange(CONFIG.masterSheetEntrada, q.cell, [[answers[q.cell]]], sessionId);
     }
 
@@ -688,7 +707,7 @@ async function calcularPresupuesto(){
     const range = `E${minRow}:I${maxRow}`;
     const result = await readRange(CONFIG.masterSheetEntrada, range, sessionId);
 
-    lastBudget = buildBudget(result.values, minRow);
+    lastBudget = buildBudget(result.values, minRow, Number(answers["descuentoGlobal"]) || 0);
     renderBudget(lastBudget);
     budgetStatus.innerHTML = "";
   }catch(err){
@@ -700,7 +719,7 @@ async function calcularPresupuesto(){
 
 // Construye la estructura de partidas -> líneas (agrupando por código dentro
 // de cada partida) a partir de los valores E:I leídos del Excel.
-function buildBudget(values, minRow){
+function buildBudget(values, minRow, dtoDefault){
   const partidasResult = PARTIDAS.map(p => ({ titulo: p.titulo, lineas: {}, total: 0 }));
 
   PARTIDAS.forEach((p, idx) => {
@@ -726,6 +745,7 @@ function buildBudget(values, minRow){
           descripcion: desc || "",
           cantidad: 0,
           precio: Number(precio) || 0,
+          dto: dtoDefault,
           pendiente: esPendiente
         };
       }
@@ -735,7 +755,7 @@ function buildBudget(values, minRow){
   });
 
   function target_total(p){
-    p.lineasArr = Object.values(p.lineas).map(l => ({ ...l, importe: l.cantidad * l.precio }));
+    p.lineasArr = Object.values(p.lineas).map(l => ({ ...l, importe: l.cantidad * l.precio * (1 - l.dto / 100) }));
     p.total = p.lineasArr.reduce((s, l) => s + l.importe, 0);
   }
 
@@ -764,7 +784,7 @@ function renderBudget(budget){
     html += `<div style="overflow-x:auto;"><table><caption>${p.titulo}</caption>
       <thead><tr>
         <th>Cód. artículo</th><th>Descripción</th>
-        <th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th>
+        <th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Dto (%)</th><th class="num">Importe</th>
       </tr></thead><tbody>`;
     p.lineasArr.forEach((l, lIdx) => {
       html += `<tr>
@@ -774,12 +794,20 @@ function renderBudget(budget){
              onchange="updateLinea(${pIdx},${lIdx},'cantidad',this.value)"></td>
         <td class="num"><input type="number" step="any" value="${l.precio.toFixed(2)}"
              onchange="updateLinea(${pIdx},${lIdx},'precio',this.value)"> €</td>
+        <td class="num"><input type="number" step="any" min="0" max="100" value="${(l.dto||0).toFixed(2)}"
+             onchange="updateLinea(${pIdx},${lIdx},'dto',this.value)"> %</td>
         <td class="num">${fmt(l.importe)} €</td>
       </tr>`;
     });
-    html += `<tr class="total-row"><td colspan="4">Subtotal partida</td><td class="num">${fmt(p.total)} €</td></tr>`;
+    html += `<tr class="total-row"><td colspan="5">Subtotal partida</td><td class="num">${fmt(p.total)} €</td></tr>`;
     html += `</tbody></table></div>`;
   });
+
+  html += `
+    <div class="btn-row" style="margin-top:12px;">
+      <button class="secondary" onclick="toggleAddArticlePanel()">+ Añadir artículo manual</button>
+    </div>
+    <div id="addArticlePanel" style="display:none;"></div>`;
 
   html += `<div class="grand-total">TOTAL PRESUPUESTO: ${fmt(budget.granTotal)} €</div>`;
   content.innerHTML = html;
@@ -788,10 +816,92 @@ function renderBudget(budget){
 function updateLinea(pIdx, lIdx, campo, nuevoValor){
   const l = lastBudget.partidas[pIdx].lineasArr[lIdx];
   l[campo] = Number(nuevoValor) || 0;
-  l.importe = l.cantidad * l.precio;
+  l.importe = l.cantidad * l.precio * (1 - (l.dto || 0) / 100);
   lastBudget.partidas[pIdx].total = lastBudget.partidas[pIdx].lineasArr.reduce((s, x) => s + x.importe, 0);
   lastBudget.granTotal = lastBudget.partidas.reduce((s, p) => s + p.total, 0);
   renderBudget(lastBudget);
+}
+
+/* =========================================================================
+   AÑADIR ARTÍCULO MANUAL (buscando por código o descripción en la tarifa)
+   ========================================================================= */
+function toggleAddArticlePanel(){
+  const panel = document.getElementById("addArticlePanel");
+  const abrir = panel.style.display === "none";
+  panel.style.display = abrir ? "block" : "none";
+  if(abrir){
+    panel.innerHTML = `
+      <div class="card" style="background:var(--gris-claro);margin-top:8px;">
+        <div class="field">
+          <label>Buscar artículo (código o descripción)</label>
+          <input type="text" id="articleSearchInput" oninput="renderArticleSearchResults(this.value)" placeholder="Ej: 500071 o Malla Marco Ventana">
+        </div>
+        <div id="articleSearchResults" class="hint">Escribe para buscar en la tarifa…</div>
+      </div>`;
+    document.getElementById("articleSearchInput").focus();
+  }
+}
+
+function renderArticleSearchResults(query){
+  const results = document.getElementById("articleSearchResults");
+  const q = (query || "").trim().toLowerCase();
+  if(q.length < 2){
+    results.innerHTML = `<p class="hint">Escribe al menos 2 caracteres…</p>`;
+    return;
+  }
+  const matches = TARIFA_CATALOG.filter(a =>
+    a.codigo.toLowerCase().includes(q) || a.descripcion.toLowerCase().includes(q)
+  ).slice(0, 15);
+
+  if(matches.length === 0){
+    results.innerHTML = `<p class="hint">Sin resultados.</p>`;
+    return;
+  }
+
+  results.innerHTML = matches.map((a, idx) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--gris-borde);">
+      <div><strong>${a.codigo}</strong> — ${a.descripcion} <span class="hint">(${a.precio.toFixed(2)} €)</span></div>
+      <button class="secondary" style="padding:6px 12px;font-size:12px;" onclick="promptAddArticle(${idx},'${q.replace(/'/g,"")}')">Añadir</button>
+    </div>`).join("");
+  // Guardamos el último listado filtrado para poder referenciarlo por índice
+  window._articleMatches = matches;
+}
+
+function promptAddArticle(idx){
+  const articulo = window._articleMatches[idx];
+  if(!articulo) return;
+
+  const partidaTexto = prompt(`Partida a la que pertenece "${articulo.descripcion}" (1, 2, 3 o 4):`, "1");
+  const partidaIdx = parseInt(partidaTexto, 10) - 1;
+  if(isNaN(partidaIdx) || partidaIdx < 0 || partidaIdx > 3){
+    alert("Partida no válida. Indica 1, 2, 3 o 4.");
+    return;
+  }
+  const cantidadTexto = prompt(`Cantidad de "${articulo.descripcion}":`, "1");
+  const cantidad = Number(cantidadTexto);
+  if(isNaN(cantidad) || cantidad <= 0){
+    alert("Cantidad no válida.");
+    return;
+  }
+
+  const dtoDefault = Number(document.getElementById("descuentoGlobal")?.value) || 0;
+  lastBudget.partidas[partidaIdx].lineasArr.push({
+    codigo: articulo.codigo,
+    descripcion: articulo.descripcion,
+    cantidad,
+    precio: articulo.precio,
+    dto: dtoDefault,
+    importe: cantidad * articulo.precio * (1 - dtoDefault / 100),
+    pendiente: false,
+    manual: true
+  });
+  lastBudget.partidas[partidaIdx].total = lastBudget.partidas[partidaIdx].lineasArr.reduce((s, x) => s + x.importe, 0);
+  lastBudget.granTotal = lastBudget.partidas.reduce((s, p) => s + p.total, 0);
+
+  document.getElementById("articleSearchInput").value = "";
+  document.getElementById("articleSearchResults").innerHTML = "";
+  renderBudget(lastBudget);
+  showToast(`"${articulo.descripcion}" añadido a la partida ${partidaIdx + 1}`);
 }
 
 /* =========================================================================
