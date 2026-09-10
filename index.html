@@ -182,6 +182,13 @@
     font-weight:600;
     font-size:11px;
   }
+  .info-icon{
+    display:inline-block;
+    cursor:help;
+    color:var(--capa-purpura);
+    font-size:13px;
+    margin-left:2px;
+  }
   .total-row td{
     font-weight:700;
     border-top:2px solid var(--capa-negro);
@@ -342,7 +349,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.7";
+const APP_VERSION = "1.9";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -426,6 +433,48 @@ const PARTIDAS = [
 // calcula el artículo real, así que se excluyen aquí para no generar una línea
 // de "artículo" falsa con el propio texto del título.
 
+// Explicación en lenguaje natural de cómo se calcula la cantidad de cada fila.
+// Es DINÁMICA: cada función recibe las respuestas (a) y el texto real de la
+// fórmula de la columna G leída en vivo (f) para esa fila, y extrae de ahí los
+// divisores/multiplicadores — así que si cambias una fórmula en el Excel
+// (p.ej. el "2.5" de un perfil), la explicación se actualiza sola. Los
+// rendimientos de terminación/fondo también se leen en vivo (RENDIMIENTO_*).
+// Solo el texto y la estructura de la frase están fijos aquí; los números
+// siempre vienen del Excel.
+function num(f, regex, fallback){
+  const m = f && f.match(regex);
+  return m ? m[1] : fallback;
+}
+const EXPLICACIONES = {
+  4:  (a, f) => `Rendimiento ${a.D8}: ${fmt(RENDIMIENTO_TERMINACION[a.D8] || 0)} kg/m² (según terminación seleccionada) sobre ${fmt(Number(a.D5))} m² de fachada (sacos de ${num(f,/\/\s*([\d.]+)\s*,0\)/,"25")} kg).`,
+  5:  (a, f) => `Rendimiento del fondo: ${fmt(RENDIMIENTO_FONDO)} kg/m² (aplicable solo si la terminación es Acrílico) sobre ${fmt(Number(a.D5))} m² de fachada (envases de ${num(f,/\/\s*([\d.]+)\s*,0\)/,"20")} kg).`,
+  6:  (a, f) => `(${fmt(Number(a.D5))} m² de fachada × ${num(f,/D5\*([\d.]+)\//,"10")}) / ${num(f,/D5\*[\d.]+\/([\d.]+)/,"25")} kg por saco.`,
+  7:  (a, f) => `(${fmt(Number(a.D5))} m² de fachada / ${num(f,/D5\/([\d.]+)\)/,"50")}) × ${num(f,/\)\*([\d.]+)/,"1.2")} (factor de tacos).`,
+  8:  (a, f) => {
+        const lm = num(f,/IF\(D4="LM",([\d.]+),/,"0.6");
+        const otro = num(f,/IF\(D4="LM",[\d.]+,([\d.]+)\)/,"0.5");
+        return `${fmt(Number(a.D5))} m² de fachada / ${a.D4 === "LM" ? lm : otro} m² por unidad de malla (según aislante "${a.D4}").`;
+      },
+  9:  (a, f) => `${fmt(Number(a.D5))} m² de fachada × ${num(f,/D5\*([\d.]+)/,"8")}.`,
+  10: (a) => a.D4 === "LM"
+        ? `Misma cantidad que las fijaciones mecánicas (mismo cálculo que esa fila), por tratarse de aislante Lana Mineral (LM).`
+        : `No aplica con el aislante seleccionado ("${a.D4}"); solo se activa con Lana Mineral (LM).`,
+  12: (a, f) => `${fmt(Number(a.D11))} m de perímetro de fachada / ${num(f,/\/\s*([\d.]+)\s*,0\)/,"2.5")} m por unidad.`,
+  13: (a, f) => `${fmt(Number(a.D11))} m de perímetro de fachada / ${num(f,/\/\s*([\d.]+)\s*,0\)/,"2.5")} m por unidad.`,
+  14: (a, f) => `${fmt(Number(a.D5))} m² de fachada / ${num(f,/D5\/([\d.]+)/,"60")} m² por unidad de montaje.`,
+  16: (a, f) => `${fmt(Number(a.D14))} m de fachada con esquinas 90º / ${num(f,/D14\/([\d.]+)/,"2.5")} m por unidad.`,
+  17: (a, f) => `${fmt(Number(a.D16))} m de fachada con cierres laterales / ${num(f,/D16\/([\d.]+)/,"2.5")} m por unidad.`,
+  19: (a, f) => `(${fmt(Number(a.D19))} cm de ancho × ${a.D18} ventanas) / ${num(f,/D19\*D18\/([\d.]+)/,"250")}.`,
+  20: (a, f) => `(${fmt(Number(a.D20))} cm de alto × ${a.D18} ventanas) / ${num(f,/D20\*D18\/([\d.]+)/,"250")}, x${num(f,/,0\)\*([\d.]+)/,"2")} (dos laterales).`,
+  21: (a, f) => `(${fmt(Number(a.D19))} cm de ancho × ${a.D18} ventanas) / ${num(f,/D19\*D18\/([\d.]+)/,"250")}, x${num(f,/,0\)\*([\d.]+)/,"2")} (superior e inferior).`,
+  22: (a, f) => `(${fmt(Number(a.D20))} cm de alto × ${a.D18} ventanas) / ${num(f,/D20\*D18\/([\d.]+)/,"250")}, x${num(f,/,0\)\*([\d.]+)/,"2")} (las esquinas).`,
+  23: (a, f) => `(${fmt(Number(a.D19))} cm de ancho × ${a.D18} ventanas) / ${num(f,/D19\*D18\/([\d.]+)/,"250")} (alféizar).`,
+  25: (a, f) => `(${fmt(Number(a.D25))} cm de ancho × ${a.D24} puertas) / ${num(f,/D25\*D24\/([\d.]+)/,"250")}.`,
+  26: (a, f) => `(${fmt(Number(a.D27))} cm de alto × ${a.D24} puertas) / ${num(f,/D27\*D24\/([\d.]+)/,"250")}, x${num(f,/,0\)\*([\d.]+)/,"2")} (dos laterales).`,
+  27: (a, f) => `(${fmt(Number(a.D25))} cm de ancho × ${a.D24} puertas) / ${num(f,/D25\*D24\/([\d.]+)/,"250")}, x${num(f,/,0\)\*([\d.]+)/,"2")} (superior e inferior).`,
+  28: (a, f) => `(${fmt(Number(a.D27))} cm de alto × ${a.D24} puertas) / ${num(f,/D27\*D24\/([\d.]+)/,"250")}, x${num(f,/,0\)\*([\d.]+)/,"2")} (las esquinas).`
+};
+
 /* =========================================================================
    ESTADO GLOBAL
    ========================================================================= */
@@ -433,6 +482,8 @@ let msalInstance, account, graphToken;
 let siteId, masterDriveId, masterDriveItemId, docsLibraryId;
 let dropdownOptions = {}; // rango -> [valores]
 let TARIFA_CATALOG = []; // {codigo, descripcion, precio} — para el buscador de artículos manuales
+let RENDIMIENTO_TERMINACION = {}; // { "Acrilico": 2, "Xilosano": 2, ... } kg/m² — leído en vivo del Excel
+let RENDIMIENTO_FONDO = 0; // kg/m² — leído en vivo del Excel (celda L33)
 let lastBudget = null;    // último presupuesto calculado (para PDF / guardado)
 
 /* =========================================================================
@@ -603,8 +654,16 @@ async function loadMasterData(){
       .map(row => ({
         codigo: typeof row[0] === "number" ? String(row[0]).padStart(6, "0") : String(row[0]),
         descripcion: String(row[1] || "").replace(/\n/g, " ").trim(),
+        tipo: String(row[3] || "").replace(/\n/g, " ").trim(),
         precio: Number(row[5]) || 0
       }));
+
+    // Tablas de rendimiento (para las explicaciones dinámicas de cálculo)
+    const rendTerm = await readRange(CONFIG.masterSheetEntrada, "K28:L32", sessionId);
+    RENDIMIENTO_TERMINACION = {};
+    rendTerm.values.forEach(row => { if(row[0]) RENDIMIENTO_TERMINACION[String(row[0])] = Number(row[1]) || 0; });
+    const rendFondo = await readRange(CONFIG.masterSheetEntrada, "L33", sessionId);
+    RENDIMIENTO_FONDO = Number(rendFondo.values[0][0]) || 0;
 
     await closeWorkbookSession(sessionId);
 
@@ -673,8 +732,8 @@ function renderForm(){
   const extraWrap = document.createElement("div");
   extraWrap.innerHTML = `
     <div class="field">
-      <label>Buscar artículo por código o descripción</label>
-      <input type="text" id="articleSearchInput" oninput="renderArticleSearchResults(this.value)" placeholder="Ej: 500071 o Malla Marco Ventana">
+      <label>Buscar artículo por código, descripción o tipo</label>
+      <input type="text" id="articleSearchInput" oninput="renderArticleSearchResults(this.value)" placeholder="Ej: 500071, Malla Marco Ventana o Cantonera">
     </div>
     <div id="articleSearchResults" class="hint">Escribe para buscar en la tarifa…</div>
     <div id="manualArticlesList" style="margin-top:12px;"></div>`;
@@ -725,7 +784,7 @@ async function calcularPresupuesto(){
     const range = `E${minRow}:I${maxRow}`;
     const result = await readRange(CONFIG.masterSheetEntrada, range, sessionId);
 
-    lastBudget = buildBudget(result.values, minRow, Number(answers["descuentoGlobal"]) || 0);
+    lastBudget = buildBudget(result.values, result.formulas, minRow, Number(answers["descuentoGlobal"]) || 0, answers);
     aplicarArticulosManuales(lastBudget, Number(answers["descuentoGlobal"]) || 0);
     renderBudget(lastBudget);
     budgetStatus.innerHTML = "";
@@ -738,7 +797,7 @@ async function calcularPresupuesto(){
 
 // Construye la estructura de partidas -> líneas (agrupando por código dentro
 // de cada partida) a partir de los valores E:I leídos del Excel.
-function buildBudget(values, minRow, dtoDefault){
+function buildBudget(values, formulas, minRow, dtoDefault, answers){
   const partidasResult = PARTIDAS.map(p => ({ titulo: p.titulo, lineas: {}, total: 0 }));
 
   PARTIDAS.forEach((p, idx) => {
@@ -765,10 +824,16 @@ function buildBudget(values, minRow, dtoDefault){
           cantidad: 0,
           precio: Number(precio) || 0,
           dto: dtoDefault,
-          pendiente: esPendiente
+          pendiente: esPendiente,
+          explicaciones: []
         };
       }
       target.lineas[groupKey].cantidad += Number(cant) || 0;
+      if(EXPLICACIONES[row]){
+        // La fórmula de cantidad está en la columna G, que es la 3ª del rango E:I (índice 2)
+        const gFormula = (formulas && formulas[i] && formulas[i][2]) || "";
+        try{ target.lineas[groupKey].explicaciones.push(EXPLICACIONES[row](answers, gFormula)); }catch(e){ /* si falta algún dato, se omite esa explicación */ }
+      }
     });
     target_total(partidasResult[idx]);
   });
@@ -785,6 +850,10 @@ function buildBudget(values, minRow, dtoDefault){
 /* =========================================================================
    RENDER DEL PRESUPUESTO (editable: cantidades se pueden ajustar a mano)
    ========================================================================= */
+function escAttr(str){
+  return String(str).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
 function fmt(n){
   n = Number(n) || 0;
   const negativo = n < 0;
@@ -820,8 +889,14 @@ function renderBudget(budget){
         <th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Dto (%)</th><th class="num">Importe</th>
       </tr></thead><tbody>`;
     p.lineasArr.forEach((l, lIdx) => {
+      const explicacion = (l.explicaciones && l.explicaciones.length)
+        ? Array.from(new Set(l.explicaciones)).join(" + ")
+        : "";
+      const infoIcon = explicacion
+        ? `<span class="info-icon" title="${escAttr(explicacion)}" onclick="alert('${escAttr(explicacion).replace(/'/g,"\\'")}')">ⓘ</span>`
+        : "";
       html += `<tr>
-        <td>${l.codigo} ${l.pendiente ? '<div class="pendiente">código pendiente</div>' : ''}</td>
+        <td>${l.codigo} ${infoIcon} ${l.pendiente ? '<div class="pendiente">código pendiente</div>' : ''}</td>
         <td>${l.descripcion}</td>
         <td class="num"><input type="text" inputmode="decimal" value="${fmt(l.cantidad)}"
              onchange="updateLinea(${pIdx},${lIdx},'cantidad',this.value)"></td>
@@ -864,7 +939,7 @@ function renderArticleSearchResults(query){
     return;
   }
   const matches = TARIFA_CATALOG.filter(a =>
-    a.codigo.toLowerCase().includes(q) || a.descripcion.toLowerCase().includes(q)
+    a.codigo.toLowerCase().includes(q) || a.descripcion.toLowerCase().includes(q) || a.tipo.toLowerCase().includes(q)
   ).slice(0, 15);
 
   if(matches.length === 0){
@@ -875,7 +950,7 @@ function renderArticleSearchResults(query){
   window._articleMatches = matches;
   results.innerHTML = matches.map((a, idx) => `
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--gris-borde);">
-      <div style="flex:1;min-width:180px;"><strong>${a.codigo}</strong> — ${a.descripcion} <span class="hint">(${a.precio.toFixed(2)} €)</span></div>
+      <div style="flex:1;min-width:180px;"><strong>${a.codigo}</strong> — ${a.descripcion} <span class="hint">(${a.tipo ? a.tipo + " · " : ""}${a.precio.toFixed(2)} €)</span></div>
       <input type="number" id="qty_${idx}" value="1" min="0.01" step="any" style="width:70px;padding:6px;border:1px solid var(--gris-borde);border-radius:4px;" title="Cantidad">
       <select id="partida_${idx}" style="padding:6px;border:1px solid var(--gris-borde);border-radius:4px;max-width:220px;">
         ${PARTIDAS.map((p, i) => `<option value="${i}">${p.titulo}</option>`).join("")}
@@ -932,7 +1007,8 @@ function aplicarArticulosManuales(budget, dtoDefault){
       dto: dtoDefault,
       importe: a.cantidad * a.precio * (1 - dtoDefault / 100),
       pendiente: false,
-      manual: true
+      manual: true,
+      explicaciones: ["Artículo añadido manualmente al presupuesto."]
     });
   });
   budget.partidas.forEach(p => {
