@@ -349,7 +349,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.10";
+const APP_VERSION = "1.11";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -800,6 +800,19 @@ async function calcularPresupuesto(){
 function buildBudget(values, formulas, minRow, dtoDefault, answers){
   const partidasResult = PARTIDAS.map(p => ({ titulo: p.titulo, lineas: {}, total: 0 }));
 
+  // Resumen de los datos introducidos, mostrado junto al título de cada partida.
+  const RESUMEN_PARTIDA = [
+    a => `(${fmt(Number(a.D5))} m² de fachada)`,
+    a => `(${fmt(Number(a.D11))} m de perímetro de fachada)`,
+    a => `(${a.D18} ventanas de ${fmt(Number(a.D19))}x${fmt(Number(a.D20))} cm)`,
+    a => `(${a.D24} puertas de ${fmt(Number(a.D25))}x${fmt(Number(a.D27))} cm)`,
+    null // "5. Otras partidas" no tiene un resumen fijo
+  ];
+  partidasResult.forEach((p, idx) => {
+    if(!RESUMEN_PARTIDA[idx]) return;
+    try{ p.subtitulo = RESUMEN_PARTIDA[idx](answers); }catch(e){ /* si falta algún dato, se omite el resumen */ }
+  });
+
   PARTIDAS.forEach((p, idx) => {
     p.rows.forEach(row => {
       const i = row - minRow;
@@ -883,7 +896,7 @@ function renderBudget(budget){
 
   budget.partidas.forEach((p, pIdx) => {
     if(p.lineasArr.length === 0) return;
-    html += `<div style="overflow-x:auto;"><table><caption>${p.titulo}</caption>
+    html += `<div style="overflow-x:auto;"><table><caption>${p.titulo}${p.subtitulo ? ` <span style="font-weight:400;color:#777;font-size:12px;">${p.subtitulo}</span>` : ""}</caption>
       <thead><tr>
         <th>Cód. artículo</th><th>Descripción</th>
         <th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Dto (%)</th><th class="num">Importe</th>
@@ -1045,13 +1058,14 @@ async function generarPDF(){
 
   let canvas;
   try{
-    canvas = await html2canvas(wrapper, { scale: 2, backgroundColor: "#ffffff", windowWidth: 920 });
+    // scale 1.5 (en vez de 2) reduce bastante el peso sin perder legibilidad
+    canvas = await html2canvas(wrapper, { scale: 1.5, backgroundColor: "#ffffff", windowWidth: 920 });
   }finally{
     document.body.removeChild(wrapper);
   }
 
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF("p", "mm", "a4");
+  const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4", compress: true });
   const marginMm = 10;
   const pageWidthMm = pdf.internal.pageSize.getWidth() - marginMm * 2;
   const pageHeightMm = pdf.internal.pageSize.getHeight() - marginMm * 2;
@@ -1072,11 +1086,12 @@ async function generarPDF(){
     ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
     ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
 
-    const imgData = pageCanvas.toDataURL("image/png");
+    // JPEG con compresión (en vez de PNG sin pérdida) reduce mucho el peso del PDF final
+    const imgData = pageCanvas.toDataURL("image/jpeg", 0.82);
     const imgHeightMm = sliceHeightPx / pxPerMm;
 
     if(!first) pdf.addPage();
-    pdf.addImage(imgData, "PNG", marginMm, marginMm, pageWidthMm, imgHeightMm);
+    pdf.addImage(imgData, "JPEG", marginMm, marginMm, pageWidthMm, imgHeightMm);
 
     renderedPx += sliceHeightPx;
     first = false;
