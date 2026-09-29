@@ -349,7 +349,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.12";
+const APP_VERSION = "1.13";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -801,7 +801,12 @@ async function calcularPresupuesto(){
 // anterior de la app que todavía no incluía este resumen.
 const RESUMEN_PARTIDA = [
   a => `(${fmt(Number(a.D5))} m² de fachada)`,
-  a => `(${fmt(Number(a.D11))} m de perímetro de fachada)`,
+  a => {
+    const extras = [];
+    if(Number(a.D14) > 0) extras.push(`${fmt(Number(a.D14))} m de esquinas`);
+    if(Number(a.D16) > 0) extras.push(`${fmt(Number(a.D16))} m de cierre lateral`);
+    return `(${fmt(Number(a.D11))} m de perímetro de fachada${extras.length ? ", " + extras.join(", ") : ""})`;
+  },
   a => `(${a.D18} ventanas de ${fmt(Number(a.D19))}x${fmt(Number(a.D20))} cm)`,
   a => `(${a.D24} puertas de ${fmt(Number(a.D25))}x${fmt(Number(a.D27))} cm)`,
   null // "5. Otras partidas" no tiene un resumen fijo
