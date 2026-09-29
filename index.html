@@ -349,7 +349,7 @@
 /* =========================================================================
    CONFIGURACIÓN — revisar/ajustar estos valores antes de desplegar
    ========================================================================= */
-const APP_VERSION = "1.11";
+const APP_VERSION = "1.12";
 
 const CONFIG = {
   clientId: "b82973ee-356a-4e73-b366-50d192267164",
@@ -795,23 +795,29 @@ async function calcularPresupuesto(){
   }
 }
 
-// Construye la estructura de partidas -> líneas (agrupando por código dentro
-// de cada partida) a partir de los valores E:I leídos del Excel.
-function buildBudget(values, formulas, minRow, dtoDefault, answers){
-  const partidasResult = PARTIDAS.map(p => ({ titulo: p.titulo, lineas: {}, total: 0 }));
-
-  // Resumen de los datos introducidos, mostrado junto al título de cada partida.
-  const RESUMEN_PARTIDA = [
-    a => `(${fmt(Number(a.D5))} m² de fachada)`,
-    a => `(${fmt(Number(a.D11))} m de perímetro de fachada)`,
-    a => `(${a.D18} ventanas de ${fmt(Number(a.D19))}x${fmt(Number(a.D20))} cm)`,
-    a => `(${a.D24} puertas de ${fmt(Number(a.D25))}x${fmt(Number(a.D27))} cm)`,
-    null // "5. Otras partidas" no tiene un resumen fijo
-  ];
+// Resumen de los datos introducidos, mostrado junto al título de cada partida.
+// Función global (no solo dentro de buildBudget) para poder recalcularla también
+// al abrir un presupuesto ya guardado, aunque se guardara con una versión
+// anterior de la app que todavía no incluía este resumen.
+const RESUMEN_PARTIDA = [
+  a => `(${fmt(Number(a.D5))} m² de fachada)`,
+  a => `(${fmt(Number(a.D11))} m de perímetro de fachada)`,
+  a => `(${a.D18} ventanas de ${fmt(Number(a.D19))}x${fmt(Number(a.D20))} cm)`,
+  a => `(${a.D24} puertas de ${fmt(Number(a.D25))}x${fmt(Number(a.D27))} cm)`,
+  null // "5. Otras partidas" no tiene un resumen fijo
+];
+function aplicarResumenPartidas(partidasResult, answers){
   partidasResult.forEach((p, idx) => {
     if(!RESUMEN_PARTIDA[idx]) return;
     try{ p.subtitulo = RESUMEN_PARTIDA[idx](answers); }catch(e){ /* si falta algún dato, se omite el resumen */ }
   });
+}
+
+// Construye la estructura de partidas -> líneas (agrupando por código dentro
+// de cada partida) a partir de los valores E:I leídos del Excel.
+function buildBudget(values, formulas, minRow, dtoDefault, answers){
+  const partidasResult = PARTIDAS.map(p => ({ titulo: p.titulo, lineas: {}, total: 0 }));
+  aplicarResumenPartidas(partidasResult, answers);
 
   PARTIDAS.forEach((p, idx) => {
     p.rows.forEach(row => {
@@ -1267,6 +1273,10 @@ async function abrirPresupuestoGuardado(fileId){
     // Mostrar directamente el presupuesto guardado (puede recalcularse si se quiere)
     lastBudget = data.budget;
     lastBudget.fecha = new Date(lastBudget.fecha);
+    // Presupuestos guardados con una versión anterior de la app no llevan el
+    // resumen por partida (subtitulo) — lo recalculamos aquí con las
+    // respuestas guardadas para que también se vea en presupuestos antiguos.
+    if(data.respuestas) aplicarResumenPartidas(lastBudget.partidas, data.respuestas);
     document.getElementById("tabBudgetBtn").disabled = false;
     renderBudget(lastBudget);
     showTab("budget");
